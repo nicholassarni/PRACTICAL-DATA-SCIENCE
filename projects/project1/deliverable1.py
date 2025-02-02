@@ -1,181 +1,150 @@
 
 
-# Load Sentence Transformer model (optimized for Hugging Face deployment)
+# Load Sentence Transformer Model
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2").to(device)
 
-# API KEYS (Replace with your own)
+# API Key for Google Fact Check (Replace with your own)
 GOOGLE_FACT_CHECK_API_KEY = "YOUR_GOOGLE_FACT_CHECK_API_KEY"
-NEWS_API_KEY = "YOUR_NEWS_API_KEY"
 
-# Blacklist: URL Shorteners & Suspicious Keywords
-shorteners = ["bit.ly", "tinyurl.com", "goo.gl", "t.co", "shorte.st"]
-suspicious_keywords = ["free", "click", "win", "hack", "lottery"]
-
-# Trusted Domains List
-domain_weights = {
-    "gov": 1.0, "edu": 1.0, "mil": 0.9, "int": 0.9, "org": 0.7,
-    "researchgate.net": 0.8, "arxiv.org": 0.8, "sciencedirect.com": 0.9,
-    "springer.com": 0.9, "nature.com": 1.0, "wikipedia.org": 0.5
+# Trusted domains for different categories
+trusted_domain_categories = {
+    "travel": ["tsa.gov", "faa.gov", "iata.org", "nyc.gov", "transportation.gov"],
+    "health": ["cdc.gov", "who.int", "nih.gov", "fda.gov"],
+    "finance": ["federalreserve.gov", "sec.gov", "imf.org"],
+    "science": ["nasa.gov", "mit.edu", "nature.com"],
 }
 
-### **🔹 Fetch Real-Time Trusted Sources**
-def fetch_google_fact_check_sources():
-    """Fetches latest fact-checked claims from Google Fact Check API"""
-    try:
-        url = f"https://factchecktools.googleapis.com/v1alpha1/claims:search?key={GOOGLE_FACT_CHECK_API_KEY}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
-            return [claim["text"] for claim in data.get("claims", [])[:5]]  # Get top 5 claims
-        return []
-    except Exception as e:
-        print(f"Error fetching Google Fact Check claims: {e}")
-        return []
+### **🔹 Step 1: Identify Relevant Category Based on User Prompt**
+def detect_category(user_prompt):
+    """Dynamically assigns a category based on the user's question."""
+    keyword_map = {
+        "travel": ["airport", "flight", "airline", "visa", "trip"],
+        "health": ["disease", "covid", "medicine", "symptoms", "treatment"],
+        "finance": ["se", "nasa", "technology", "physics", "climate"],
+    }
 
-def fetch_latest_news_headlines():
-    """Fetches latest headlines from trusted news sources like Reuters, BBC, and AP"""
-    try:
-        url = f"https://newsapi.org/v2/top-headlines?sources=reuters,bbc-news,associated-press&apiKey={NEWS_API_KEY}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
-            return [article["title"] for article in data.get("articles", [])[:5]]  # Get top 5 headlines
-        return []
-    except Exception as e:
-        print(f"Error fetching news headlines: {e}")
-        return []
+    for category, keywords in keyword_map.items():
+        if any(keyword in user_prompt.lower() for keyword in keywords):
+            return category
+    return "general"
 
-def fetch_wikipedia_summaries(topic="Artificial Intelligence"):
-    """Fetches Wikipedia summaries for a given topic"""
-    try:
-        url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{topic.replace(' ', '_')}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
-            return [data.get("extract", "")]
-        return []
-    except Exception as e:
-        print(f"Error fetching Wikipedia summaries: {e}")
-        return []
+### **🔹 Step 2: Check Domain Credibility Based on Category**
+def check_domain_credibility(url, category):
+    """Rates a domain's credibility dynamically based on its category."""
+    extracted = tldextract.extract(url)
+    domain = f"{extracted.domain}.{extracted.suffix}"
 
-def fetch_real_time_trusted_sources():
-    """Combines multiple real-time sources"""
-    sources = []
-    sources.extend(fetch_google_fact_check_sources())
-    sources.extend(fetch_latest_news_headlines())
-    sources.extend(fetch_wikipedia_summaries())
-    return sources if sources else ["No trusted sources available."]
+    trusted_domains = trusted_domain_categories.get(category, [])
+    
+    if domain in trusted_domains:
+        return 1.0, f"✅ Highly credible source: {domain}"
+    elif "travel" in domain or "leisure" in domain:
+        return 0.6, f"⚠️ Source is a travel site ({domain}), may not be fully authoritative."
+    else:
+        return 0.3, f"❌ Unverified source: {domain}, cross-check with official sources."
 
-### **🔹 Core URL Evaluation Function**
-def evaluate_url_validity(url, user_prompt):
-    """Evaluates a URL's credibility and checks if the content aligns with a user query."""
-    try:
-        # Extract domain info
-        extracted = tldextract.extract(url)
-        domain = f"{extracted.domain}.{extracted.suffix}"
-
-        # Check for HTTPS
-        is_https = url.startswith("https://")
-
-        # Assign domain credibility score
-        domain_score = next((domain_weights[d] for d in domain_weights if domain.endswith(d)), 0.5)
-
-        # Check for suspicious patterns
-        is_shortened = any(shortener in url for shortener in shorteners)
-        has_suspicious_keywords = any(kw in url.lower() for kw in suspicious_keywords)
-
-        # Fetch webpage content
-        text_content = fetch_url_text(url)
-        if text_content.startswith("Error:"):
-            return 0, f"Error: Could not fetch webpage content ({text_content})"
-
-        # Compare content similarity with trusted sources
-        fact_check_similarity = analyze_content_similarity(text_content)
-
-        # Compare article content with user query
-        user_query_similarity = analyze_query_similarity(user_prompt, text_content)
-
-        # Compute final score
-        final_score = compute_final_score(
-            is_https, domain_score, is_shortened, has_suspicious_keywords, fact_check_similarity, user_query_similarity
-        )
-
-        # Generate explanation
-        explanation = generate_explanation(
-            is_https, domain, is_shortened, has_suspicious_keywords, fact_check_similarity, user_query_similarity
-        )
-
-        return final_score, explanation
-
-    except Exception as e:
-        return 0, f"Error processing URL: {str(e)}"
-
-### **🔹 Fetch Webpage Content (Using `newspaper3k`)**
+### **🔹 Step 3: Fetch Article Content Dynamically**
 def fetch_url_text(url):
-    """Fetches and extracts text from a news article using newspaper3k."""
+    """Fetches and extracts text from a given URL using BeautifulSoup."""
     try:
-        article = Article(url)
-        article.download()
-        article.parse()
-        return article.text if article.text else "Error: No article content found."
-    except Exception as e:
-        return f"Error: {str(e)}"
+        response = requests.get(url, timeout=10)
+        if response.status_code != 200:
+            return "Error fetching page."
 
-### **🔹 Compare Webpage Content with Trusted Sources**
-def analyze_content_similarity(text):
-    """Compares webpage content with real-time trusted sources."""
-    trusted_sources = fetch_real_time_trusted_sources()
+        soup = BeautifulSoup(response.text, "html.parser")
+        return soup.get_text(separator=" ", strip=True)
+    except requests.exceptions.RequestException:
+        return "Error fetching page."
 
-    text_embedding = model.encode(text, convert_to_tensor=True)
-    source_embeddings = model.encode(trusted_sources, convert_to_tensor=True)
+### **🔹 Step 4: Generate Dynamic Trusted Reference Texts**
+def get_dynamic_trusted_sources(category):
+    """Returns dynamically selected reference text for similarity comparison."""
+    reference_texts = {
+        "travel": [
+            "The TSA and FAA regulate air travel and airport security.",
+            "JFK, LaGuardia, and Newark are the main airports serving NYC.",
+            "Official NYC airport website provides information on best airport choices.",
+        ],
+        "health": [
+            "The CDC and WHO provide guidelines on disease prevention.",
+            "COVID-19 vaccines have been approved by the FDA.",
+            "Medical research from NIH supports evidence-based treatments.",
+        ],
+        "finance": [
+            "The Federal Reserve regulates monetary policy in the U.S.",
+            "Investment markets are monitored by the SEC and IMF.",
+            "The IRS provides guidelines on tax regulations.",
+        ],
+        "science": [
+            "NASA conducts space exploration and scientific research.",
+            "Climate change research is supported by MIT and NOAA.",
+            "AI advancements are published in Nature and Science journals.",
+        ],
+    }
+    return reference_texts.get(category, ["No reference texts available for this category."])
 
-    similarities = util.pytorch_cos_sim(text_embedding, source_embeddings)
+### **🔹 Step 5: Compare Against Trusted Sources**
+def compare_text_similarity(input_text, reference_texts):
+    """Compares text similarity against known reliable sources."""
+    input_embedding = model.encode(input_text, convert_to_tensor=True)
+    reference_embeddings = model.encode(reference_texts, convert_to_tensor=True)
+
+    similarities = util.pytorch_cos_sim(input_embedding, reference_embeddings)
     return similarities.max().item()  # Highest match
 
-### **🔹 Compare User Prompt with Webpage Content**
-def analyze_query_similarity(user_query, text):
-    """Compares the user question/query with the webpage content to check relevance."""
-    query_embedding = model.encode(user_query, convert_to_tensor=True)
-    text_embedding = model.encode(text, convert_to_tensor=True)
+### **🔹 Step 6: Fact-Check User Query Against Google Fact Check API**
+def check_fact_claim(query):
+    """Searches Google Fact Check API for prior fact-checked claims."""
+    try:
+        url = f"https://factchecktools.googleapis.com/v1alpha1/claims:search?query={query}&key={GOOGLE_FACT_CHECK_API_KEY}"
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            if "claims" in data and len(data["claims"]) > 0:
+                return 1.0, f"✅ This information has been fact-checked: {data['claims'][0]['text']}"
+        return 0.5, "⚠️ No fact-checks found for this claim."
+    except Exception as e:
+        return 0.3, f"❌ Error checking fact: {str(e)}"
 
-    similarity = util.pytorch_cos_sim(query_embedding, text_embedding).item()
-    return similarity  # Between 0 and 1
+### **🔹 Step 7: Compute Overall Validity Score**
+def evaluate_article_validity(url, user_prompt):
+    """Evaluates an article’s credibility based on category, content, and fact-checking."""
+    # Detect category dynamically
+    category = detect_category(user_prompt)
 
-### **🔹 Compute Final Credibility Score**
-def compute_final_score(is_https, domain_score, is_shortened, has_suspicious_keywords, fact_check_similarity, user_query_similarity):
-    """Computes final credibility score based on multiple factors."""
-    score = domain_score
-    if not is_https:
-        score -= 0.2
-    if is_shortened:
-        score -= 0.4
-    if has_suspicious_keywords:
-        score -= 0.3
+    # Check domain credibility
+    domain_score, domain_explanation = check_domain_credibility(url, category)
 
-    # Combine fact-checking similarity & user query similarity
-    score = (score + fact_check_similarity + user_query_similarity) / 3  # Weighted average
+    # Fetch article content
+    article_text = fetch_url_text(url)
+    if article_text.startswith("Error"):
+        return 0, f"❌ Error fetching article content: {article_text}"
 
-    return max(0, min(1, score))  # Ensure score is within [0,1] range
+    # Compare with dynamically selected reference texts
+    reference_texts = get_dynamic_trusted_sources(category)
+    similarity_score = compare_text_similarity(article_text, reference_texts)
 
-### **🔹 Generate Explanation**
-def generate_explanation(is_https, domain, is_shortened, has_suspicious_keywords, fact_check_similarity, user_query_similarity):
-    """Generates a readable explanation for the credibility score."""
-    explanations = []
-    explanations.append("✅ HTTPS Enabled" if is_https else "⚠️ Not using HTTPS (less secure)")
-    explanations.append(f"🔎 Domain: {domain} - {domain_weights.get(domain, 'Moderately reliable')}")
-    if is_shortened:
-        explanations.append("❌ URL is shortened, hiding destination.")
-    if has_suspicious_keywords:
-        explanations.append("⚠️ Contains scam-like keywords.")
+    # Fact-check user query
+    fact_check_score, fact_check_explanation = check_fact_claim(user_prompt)
 
-    explanations.append(f"📊 Content similarity to verified sources: {round(fact_check_similarity, 2)}")
-    explanations.append(f"📝 Similarity to user query: {round(user_query_similarity, 2)}")
+    # Compute final credibility score
+    final_score = (domain_score + similarity_score + fact_check_score) / 3
 
-    return " ".join(explanations)
+    # Generate explanation
+    explanation = (
+        f"🔍 Category: {category}\n"
+        f"🔎 Domain Check: {domain_explanation}\n"
+        f"📊 Content Similarity: {round(similarity_score, 2)} (with trusted sources in {category})\n"
+        f"✅ Fact Check Score: {round(fact_check_score, 2)} - {fact_check_explanation}\n"
+        f"⭐ Final Credibility Score: {round(final_score, 2)}"
+    )
+
+    return final_score, explanation
 
 ### **🔹 Example Usage**
-test_url = "https://www.nytimes.com/2025/02/01/us/philadelphia-plane-crash.html"
-user_prompt = "Did a plane crash happen in Philadelphia?"
-score, explanation = evaluate_url_validity(test_url, user_prompt)
-print(f"Score: {score}\nExplanation: {explanation}")
+test_url = "https://www.travelandleisure.com/airlines-airports/new-york-city-airports"
+user_query = "What is the best airport to use when flying into NYC?"
+score, explanation = evaluate_article_validity(test_url, user_query)
+
+print(f"Score: {score}\nExplanation:\n{explanation}")

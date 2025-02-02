@@ -1,10 +1,6 @@
-!pip install newspaper3k
-!pip install --upgrade lxml lxml_html_clean newspaper3k
-
-
 import re
 import requests
 import tldextract
 import torch
 from sentence_transformers import SentenceTransformer, util
-from newspaper import Article  # NEW: Using newspaper3k instead of BeautifulSoup
+from bs4 import BeautifulSoup
