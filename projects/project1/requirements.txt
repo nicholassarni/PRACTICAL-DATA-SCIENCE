@@ -1,6 +1,11 @@
-import re
+!pip install textstat
+
 import requests
-import tldextract
+import re
+import textstat
 import torch
-from sentence_transformers import SentenceTransformer, util
+import numpy as np
 from bs4 import BeautifulSoup
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
