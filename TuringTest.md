@@ -137,4 +137,10 @@ Nick --> Scarlett: [CONVERSATION]
           > afternoon or Sunday morning. What works best for you?
 >>>
 >>>
->>> #Based on this conversation, I believe that this conversation would not pass the Turing test for multiple reasons. For one, the conversation itself feels too overally formal considering they're both pretty young and would not speak to each other in such a professional way. Furthermore. the back and forth of them saying thank you makes them seem less human as no one would be this overly polite during a convsersation.
+
+
+# 1. In order to install the tiny troupe package, you must first open a codespace on github. Once open, find the tiny troupe github link and clone the repository into the codespace. After cloning, enter the tinytroupe folder through your codespace and install the package through the “pip install .” command. Once the packages are installed, find your OpenAi API key and export it directly into your console. You can then enter python and import the many different packages that tinytroupe has to offer.
+
+# 2. The Turing Test is a test developed by Alan Turing in order to determine if a human could be able to tell the difference between a machine and a human when conversing with them. However, because LLMs have become really good at mimicking human speak and natural language because of the large amount of data available, the Turing Test has become defined based on other ideas such as factors like long term consistency, understanding context beyond text, intentionality of the speaker, etc.
+
+# 3. Based on this conversation, I believe that this conversation would not pass the Turing test for multiple reasons. For one, the conversation itself feels too overly formal considering they're both pretty young and would not speak to each other in such a professional way. Furthermore. the back and forth of them saying thank you makes them seem less human as no one would be this overly polite during a conversation.
